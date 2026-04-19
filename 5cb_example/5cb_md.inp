@@ -1,0 +1,10 @@
+$md
+  temp=300
+  time=10.000
+  step=1.0
+  dump=50
+  nvt=true
+  hmass=4
+  shake=2
+  sccacc=2.0
+$end

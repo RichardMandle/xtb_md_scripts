@@ -6,7 +6,7 @@ First, get a .xyz file of the molecule you want to simulate. Perhaps 5CB; and we
 ```python ~/code/hpc_tools/smi2xyz.py -i "CCCCCc1ccc(c2ccc(C#N)cc2)cc1" -o 5cb.xyz```
 <br>
 Then feed this into the orca or xtb builder (respective scripts):<br>
-```python ../rjm_orca_md.py -i 5cb.xyz -n 3 -ns 20000```
+```python ../rjm_orca_md.py -i 5cb.xyz -n 3 -ns 20000```<br>
 ```python ../rjm_xtb_md.py -i 5cb.xyz -n 3 -ns 20000 ```
 <br><br>
 There are a few options for things like number of molecules ```-n```, number of steps ```-ns```, temperature, using SHAKE... all sorts.

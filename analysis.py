@@ -11,20 +11,36 @@ import matplotlib.pyplot as plt
 Analysis pipeline for XTB/Orca MD of small systems
 
 functions:
-part 1 - I/O, trajectory
-parse_md_input          - read the xtb/orca md input file and - more or less - workout the timesteps per frame in the trajectory.
-parse_single_xyz        - reads the .xyz file containing coordinates of one molecule
-get_natoms_from_xyz     - count the number of atoms in one molecule
-build_topology          - build an mdtraj compatible topology 
-load_trajectory         - load the .xyz trajectory as mdtraj traj object 
 
-part 2 - basic analysis
+    part 1 - I/O, trajectory
+parse_md_input              - read the xtb/orca md input file and - more or less - workout the timesteps per frame in the trajectory.
+parse_single_xyz            - reads the .xyz file containing coordinates of one molecule
+get_natoms_from_xyz         - count the number of atoms in one molecule
+build_topology              - build an mdtraj compatible topology 
+load_trajectory             - load the .xyz trajectory as mdtraj traj object 
 
-compute_com             - compute centre-of-mass (COM) for each molecule
-compute_pair_distnces   - compute pairwise COM-COM distance per frame
+    part 2 - basic analysis
 
-part n - plotting tools
+compute_com                 - compute centre-of-mass (COM) for each molecule
+compute_pair_distnces       - compute pairwise COM-COM distance per frame
+compute_min_distances       - compute the distance between molecules on a minimum atom-atom basis
+compute_interaction_mask    - mask out interactions beyond a cutoff distance (controleld with -c)
+compute_orientation_when... -
 
+
+    part 3 - angle based interactions
+get_directors               - use mdtraj to compute the vector describing the molecules orientation
+compute_pair_angles         - calculate angles between all pairs of molecules using the vectors from get_directors
+fix_director_signs          - keep the director signs constant; stops the vector description of molecular orientation "flipping"
+
+    part n - plotting tools
+plot_distances              - plot pair COM-COM distances per frame
+plot_orientations           - plot pair cos(theta) per frame
+plot_orientation_hist       - histogram of cos(thera) per pair over all frames
+
+TO DO:
+Different analysis tools. COM-COM is too blunt. Would be good to decompose that into x/y/z
+in thre frame of the molecule (e.g. mol 0 interacts with mol 1; its displaced along X by...)
 
 '''
 
@@ -138,6 +154,76 @@ def compute_pair_distances(coms):
 
     return pair_dists
     
+def compute_min_distances(traj):
+    """
+    compute minimum atom–atom distance between molecule pairs per frame.
+
+    return:
+    pair_min_dists: dict[(i,j)] -> (n_frames,)
+    """
+    pair_min_dists = {}
+
+    mol_atoms = [
+        [atom.index for atom in res.atoms]
+        for res in traj.topology.residues
+    ]
+
+    nmol = len(mol_atoms)
+    coords = traj.xyz
+
+    for i in range(nmol):
+        for j in range(i+1, nmol):
+
+            inds_i = mol_atoms[i]
+            inds_j = mol_atoms[j]
+
+            xyz_i = coords[:, inds_i, :]
+            xyz_j = coords[:, inds_j, :]
+
+            d = np.linalg.norm(
+                xyz_i[:, :, None, :] - xyz_j[:, None, :, :],
+                axis=-1
+            )
+
+            d_min = d.min(axis=(1, 2))
+
+            pair_min_dists[(i, j)] = d_min
+
+    return pair_min_dists
+    
+def compute_interaction_mask(args, pair_min_dists, cutoff=0.5):
+    """
+    cutoff in nm
+    """
+    masks = {}
+
+    for k, d in pair_min_dists.items():
+        masks[k] = d < cutoff
+
+    return masks
+    
+def compute_interaction_fraction(masks):
+    print("\n[ANALYSIS] Interaction fraction:")
+
+    for k, mask in masks.items():
+        frac = mask.sum() / len(mask)
+        print(f"{k}: {frac*100:.1f}%")
+        
+def compute_orientation_when_interacting(pair_angles, masks):
+    print("\n[ANALYSIS] Orientation when interacting:")
+
+    for k in pair_angles.keys():
+        c = pair_angles[k]
+        mask = masks[k]
+
+        if np.any(mask):
+            mean = c[mask].mean()
+            std = c[mask].std()
+            print(f"{k}: mean cosθ = {mean:.2f} ± {std:.2f}")
+        else:
+            print(f"{k}: no interactions")
+            
+            
 #part 3 - angle analysis
  
 def get_directors(traj, indices='residues', care_about_polar = True):
@@ -183,7 +269,7 @@ def fix_director_signs(directors):
     return directors
 
 # part n - plotting
-def plot_distances(pair_dists, timestep_fs=1.0):
+def plot_distances(pair_dists, timestep_fs=1.0, outfile="distances.png"):
     '''
     very basic plotter for compute_pair_distances data
     '''
@@ -194,9 +280,11 @@ def plot_distances(pair_dists, timestep_fs=1.0):
         plt.plot(t, d, label=f"{i}-{j}")
 
     plt.xlabel("Time (ps)")
-    plt.ylabel("COM distance (Å)")
+    plt.ylabel("COM distance (nm)")
     plt.legend()
     plt.tight_layout()
+    
+    plt.savefig(outfile, dpi=300)
     plt.show()
 
 def plot_orientations(pair_angles, timestep_fs=1.0, outfile="orientations.png", ignore_polar = False):
@@ -216,15 +304,45 @@ def plot_orientations(pair_angles, timestep_fs=1.0, outfile="orientations.png", 
 
     plt.savefig(outfile, dpi=300)
     plt.show()
+    
+def plot_orientation_hist(pair_angles, masks, outfile="orientation_hist.png",):
+    plt.figure()
 
+    for k in pair_angles.keys():
+        c = pair_angles[k]
+        mask = masks[k]
+
+        if np.any(mask):
+            plt.hist(
+                c[mask],
+                bins=30,
+                alpha=0.5,
+                label=f"{k}"
+            )
+
+    plt.xlabel("cos(theta)")
+    plt.ylabel("count")
+    plt.legend()
+    plt.tight_layout()
+    
+    plt.savefig(outfile, dpi=300)
+    plt.show()
+    
+    
 def main():
     parser = argparse.ArgumentParser(description="Process an XTB/ORCA trajectory")
 
     parser.add_argument("-i", "--input_xyz", required=True, help="Single molecule XYZ (template)")
     parser.add_argument("-t", "--traj", default="xtb_trajectory.xyz", help="Trajectory XYZ file")
+    parser.add_argument("-m", "--md_input", required=True, help="xTB/ORCA MD input file (.inp)" )
+    
+    # turn on different analysis routines  
     parser.add_argument("-a", "--angle", action="store_true", help="Run orientation (angle) analysis")
     parser.add_argument("-d", "--distance", action="store_true", help="Run distance analysis")
-    parser.add_argument("-m", "--md_input", required=True, help="xTB/ORCA MD input file (.inp)" )
+    parser.add_argument("-ad", "--interaction", action="store_true", help="Run interaction vs angle analysis")
+
+    # tunable parameters stuff  
+    parser.add_argument("-c", "--int_cutoff", default=0.5, help="Minimum atom-atom distance (in nm) required for interaction")
     
     args = parser.parse_args()
 
@@ -242,6 +360,17 @@ def main():
         directors = get_directors(traj)
         pair_angles = compute_pair_angles(traj, directors)
         plot_orientations(pair_angles, timestep_fs=timestep_fs)
-
+    
+    if args.interaction: # Cos(theta) vs interaction histogram
+        if 'pair_angles' not in locals():
+            directors = get_directors(traj)
+            pair_angles = compute_pair_angles(traj, directors)
+            
+        pair_min_dists = compute_min_distances(traj)
+        masks = compute_interaction_mask(args, pair_min_dists, cutoff=args.int_cutoff)
+        compute_interaction_fraction(masks)
+        plot_orientation_hist(pair_angles, masks)
+        
+        
 if __name__ == "__main__":
     main()

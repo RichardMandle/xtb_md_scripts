@@ -10,9 +10,11 @@ Then feed this into the orca or xtb builder (respective scripts):<br>
 ```python ../rjm_xtb_md.py -i 5cb.xyz -n 3 -ns 20000 ```
 <br><br>
 There are a few options for things like number of molecules ```-n```, number of steps ```-ns```, temperature, using SHAKE... all sorts.
+<br><br>
+To use xtb_replicates.sh:<br>
+```sh ~/xtb_md/xtb_replicates.sh -i 5cb.xyz -nrep 500 -ns 100000 -enviro hpc -n 2```<br>
+This creates 500 replica simulations, each with different starting configurations, and runs with default options for 100 ps (```-ns 100000```) for two molecules (```-n 2```) configured for execution on hpc (```-enviro hpc```). The written .sh files are configured for submission to slurm on the AIRE HPC at UoL.
 
 # TO DO
-* need to write code for analysis
-* need to write some bash or something for setting up many tens or hundreds of replicas of the simulation (each a unique starting point) so we get better statistics
-* need to write scripts for submitting to slurm
-* And need to benchmark on the HPC systems also (all just run on a laptop, single core).
+* Analysis code is fairly boilerplate, it probably isn't the final version. It needs tweaking to handle the replica simulations.
+* We need to run some benchmarks so we can assess the sort of time we expect for using multiple cores, for larger numbers of molecules and so on.
